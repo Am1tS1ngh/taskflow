@@ -1,0 +1,181 @@
+// TaskFlow — Entity Relationship Diagram
+// Paste this entire file at https://dbdiagram.io/d
+// Then File → Export → PNG (or PDF)
+
+// ── Enums ───────────────────────────────────────────────────────────────
+
+Enum user_role {
+  ADMIN
+  MEMBER
+}
+
+Enum workspace_role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+Enum task_status {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELLED
+}
+
+Enum task_priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+Enum notification_type {
+  task_assigned
+  due_reminder
+  comment_mention
+  status_changed
+}
+
+// ── Tables ──────────────────────────────────────────────────────────────
+
+Table users {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  name varchar(100) [not null]
+  email varchar(255) [unique, not null]
+  password varchar(255) [not null, note: 'bcrypt hash, select:false']
+  role user_role [not null, default: 'MEMBER']
+  createdAt timestamptz [not null, default: `now()`]
+  updatedAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    email [unique, name: 'IDX_users_email']
+  }
+}
+
+Table refresh_tokens {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  userId uuid [not null, ref: > users.id, note: 'ON DELETE CASCADE']
+  tokenHash varchar(64) [unique, not null, note: 'SHA-256 of raw token']
+  expiresAt timestamptz [not null]
+  revoked boolean [not null, default: false]
+  createdAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    tokenHash [unique, name: 'IDX_refresh_tokens_tokenHash']
+    userId [name: 'IDX_refresh_tokens_userId']
+  }
+}
+
+Table workspaces {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  name varchar(100) [not null]
+  description text
+  ownerId uuid [not null, ref: > users.id, note: 'ON DELETE RESTRICT']
+  createdAt timestamptz [not null, default: `now()`]
+  updatedAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    ownerId [name: 'IDX_workspaces_ownerId']
+  }
+}
+
+Table workspace_members {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  workspaceId uuid [not null, ref: > workspaces.id, note: 'ON DELETE CASCADE']
+  userId uuid [not null, ref: > users.id, note: 'ON DELETE CASCADE']
+  role workspace_role [not null, default: 'MEMBER']
+  createdAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (workspaceId, userId) [unique, name: 'UQ_workspace_user']
+    workspaceId [name: 'IDX_workspace_members_workspaceId']
+    userId [name: 'IDX_workspace_members_userId']
+  }
+}
+
+Table projects {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  workspaceId uuid [not null, ref: > workspaces.id, note: 'ON DELETE CASCADE']
+  name varchar(100) [not null]
+  description text
+  createdById uuid [not null, ref: > users.id, note: 'ON DELETE RESTRICT']
+  createdAt timestamptz [not null, default: `now()`]
+  updatedAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    workspaceId [name: 'IDX_projects_workspaceId']
+    createdById [name: 'IDX_projects_createdById']
+  }
+}
+
+Table tasks {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  projectId uuid [not null, ref: > projects.id, note: 'ON DELETE CASCADE']
+  parentTaskId uuid [ref: > tasks.id, note: 'self-FK; ON DELETE CASCADE; nullable']
+  title varchar(200) [not null]
+  description text
+  status task_status [not null, default: 'TODO']
+  priority task_priority [not null, default: 'MEDIUM']
+  dueAt timestamptz
+  assigneeId uuid [ref: > users.id, note: 'ON DELETE SET NULL; nullable']
+  createdById uuid [not null, ref: > users.id, note: 'ON DELETE RESTRICT']
+  completedAt timestamptz
+  createdAt timestamptz [not null, default: `now()`]
+  updatedAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    projectId [name: 'IDX_tasks_projectId']
+    parentTaskId [name: 'IDX_tasks_parentTaskId']
+    dueAt [name: 'IDX_tasks_dueAt']
+    (projectId, status) [name: 'IDX_tasks_project_status']
+    (assigneeId, status) [name: 'IDX_tasks_assignee_status']
+  }
+}
+
+Table comments {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  taskId uuid [not null, ref: > tasks.id, note: 'ON DELETE CASCADE']
+  parentCommentId uuid [ref: > comments.id, note: 'self-FK; ON DELETE CASCADE; nullable']
+  authorId uuid [not null, ref: > users.id, note: 'ON DELETE RESTRICT']
+  body text [not null]
+  createdAt timestamptz [not null, default: `now()`]
+  updatedAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    taskId [name: 'IDX_comments_taskId']
+    parentCommentId [name: 'IDX_comments_parentCommentId']
+    (taskId, createdAt) [name: 'IDX_comments_task_created']
+  }
+}
+
+Table activities {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  workspaceId uuid [not null, ref: > workspaces.id, note: 'ON DELETE CASCADE']
+  actorId uuid [not null, ref: > users.id, note: 'ON DELETE RESTRICT']
+  type varchar(64) [not null, note: 'e.g. task.status_changed']
+  entityType varchar(32) [not null, note: 'task / comment / workspace_member']
+  entityId uuid [not null]
+  payload jsonb [not null, default: `'{}'`, note: 'denormalized names + type-specific data']
+  createdAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (workspaceId, createdAt) [name: 'IDX_activities_workspace_created']
+    (entityType, entityId) [name: 'IDX_activities_entity']
+  }
+}
+
+Table notifications {
+  id uuid [pk, default: `uuid_generate_v4()`]
+  userId uuid [not null, ref: > users.id, note: 'ON DELETE CASCADE; recipient']
+  type notification_type [not null]
+  title varchar(200) [not null, note: 'human-readable headline']
+  body text [note: 'human-readable detail']
+  payload jsonb [not null, default: `'{}'`]
+  read boolean [not null, default: false]
+  createdAt timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (userId, createdAt) [name: 'IDX_notifications_userId_createdAt']
+  }
+}
