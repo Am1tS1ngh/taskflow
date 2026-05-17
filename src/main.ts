@@ -9,7 +9,7 @@ async function bootstrap() {
 
   // Allow the React client dev-server to talk to this API
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:3001'],
+    origin: ['http://localhost:5173', 'http://localhost:3001', 'https://taskflow-ui-eight.vercel.app'],
     credentials: true,
   });
 
