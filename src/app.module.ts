@@ -30,6 +30,7 @@ import { GatewayModule } from './gateway/gateway.module';
         connection: {
           host: config.getOrThrow<string>('REDIS_HOST'),
           port: parseInt(config.get<string>('REDIS_PORT') ?? '6379', 10),
+          password: config.get<string>('REDIS_PASSWORD') || undefined,
         },
         defaultJobOptions: {
           attempts: 5,
